@@ -13,8 +13,9 @@
 #include "ua_log_stdout.h"
 #include "open62541_queue.h"
 #include "ua_util.h"
-
 #include <string.h> // memset
+
+#include <lwip/netdb.h>
 
 #ifndef MSG_NOSIGNAL
 #define MSG_NOSIGNAL 0

@@ -8,12 +8,12 @@
 #define ARCH_COMMON_LWIP62541_H_
 
 #define LWIP_TIMEVAL_PRIVATE 0
-#define LWIP_POSIX_SOCKETS_IO_NAMES 0
 #ifdef LWIP_COMPAT_SOCKETS
 #undef LWIP_COMPAT_SOCKETS
 #endif
 #define LWIP_COMPAT_SOCKETS 0
 
+#include <lwip/arch.h>
 #include <lwip/tcpip.h>
 #include <lwip/netdb.h>
 #include <lwip/init.h>
@@ -52,7 +52,7 @@
 #define UA_getsockopt lwip_getsockopt
 #define UA_setsockopt lwip_setsockopt
 #define UA_freeaddrinfo lwip_freeaddrinfo
-#define UA_gethostname gethostname_lwip
+#define UA_gethostname lwip_gethostname
 #define UA_getaddrinfo lwip_getaddrinfo
 
 #if UA_IPV6

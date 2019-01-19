@@ -30,4 +30,9 @@ void UA_deinitialize_architecture_network(void){
   return;
 }
 
+int gethostname_lwip(char* name, size_t len){
+  // use UA_ServerConfig_set_customHostname to set your hostname as the IP
+  return 0;
+}
+
 #endif /* UA_ARCHITECTURE_POSIX */
