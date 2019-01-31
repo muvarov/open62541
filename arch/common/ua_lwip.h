@@ -52,7 +52,7 @@
 #define UA_getsockopt lwip_getsockopt
 #define UA_setsockopt lwip_setsockopt
 #define UA_freeaddrinfo lwip_freeaddrinfo
-#define UA_gethostname lwip_gethostname
+#define UA_gethostname gethostname
 #define UA_getaddrinfo lwip_getaddrinfo
 
 #if UA_IPV6
