@@ -54,8 +54,8 @@ subscriptionPollingCallback(UA_Server *server, UA_PubSubConnection *connection) 
     }
 
     /* Decode the message */
-    UA_LOG_INFO(UA_Log_Stdout, UA_LOGCATEGORY_USERLAND,
-                "Message length: %lu", (unsigned long) buffer.length);
+    //UA_LOG_INFO(UA_Log_Stdout, UA_LOGCATEGORY_USERLAND,
+    //            "Message length: %lu", (unsigned long) buffer.length);
     UA_NetworkMessage networkMessage;
     memset(&networkMessage, 0, sizeof(UA_NetworkMessage));
     size_t currentPosition = 0;
@@ -73,24 +73,24 @@ subscriptionPollingCallback(UA_Server *server, UA_PubSubConnection *connection) 
 
     /* Is this a KeyFrame-DataSetMessage? */
     UA_DataSetMessage *dsm = &networkMessage.payload.dataSetPayload.dataSetMessages[0];
-    if(dsm->header.dataSetMessageType != UA_DATASETMESSAGE_DATAKEYFRAME)
+    if(!dsm || dsm->header.dataSetMessageType != UA_DATASETMESSAGE_DATAKEYFRAME)
         goto cleanup;
 
     /* Loop over the fields and print well-known content types */
     for(int i = 0; i < dsm->data.keyFrameData.fieldCount; i++) {
         const UA_DataType *currentType = dsm->data.keyFrameData.dataSetFields[i].value.type;
         if(currentType == &UA_TYPES[UA_TYPES_BYTE]) {
-            UA_Byte value = *(UA_Byte *)dsm->data.keyFrameData.dataSetFields[i].value.data;
-            UA_LOG_INFO(UA_Log_Stdout, UA_LOGCATEGORY_USERLAND,
-                        "Message content: [Byte] \tReceived data: %i", value);
+            //UA_Byte value = *(UA_Byte *)dsm->data.keyFrameData.dataSetFields[i].value.data;
+            //UA_LOG_INFO(UA_Log_Stdout, UA_LOGCATEGORY_USERLAND,
+            //            "Message content: [Byte] \tReceived data: %i", value);
         } else if (currentType == &UA_TYPES[UA_TYPES_DATETIME]) {
-            UA_DateTime value = *(UA_DateTime *)dsm->data.keyFrameData.dataSetFields[i].value.data;
-            UA_DateTimeStruct receivedTime = UA_DateTime_toStruct(value);
-            UA_LOG_INFO(UA_Log_Stdout, UA_LOGCATEGORY_USERLAND,
-                        "Message content: [DateTime] \t"
-                        "Received date: %02i-%02i-%02i Received time: %02i:%02i:%02i",
-                        receivedTime.year, receivedTime.month, receivedTime.day,
-                        receivedTime.hour, receivedTime.min, receivedTime.sec);
+            //UA_DateTime value = *(UA_DateTime *)dsm->data.keyFrameData.dataSetFields[i].value.data;
+            //UA_DateTimeStruct receivedTime = UA_DateTime_toStruct(value);
+            //UA_LOG_INFO(UA_Log_Stdout, UA_LOGCATEGORY_USERLAND,
+            //            "Message content: [DateTime] \t"
+            //            "Received date: %02i-%02i-%02i Received time: %02i:%02i:%02i",
+            //            receivedTime.year, receivedTime.month, receivedTime.day,
+            //            receivedTime.hour, receivedTime.min, receivedTime.sec);
         }
     }
 
