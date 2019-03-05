@@ -30,10 +30,11 @@ static void stopHandler(int sign) {
     running = false;
 }
 
+static UA_ByteString buffer = { 0, 0 };
+
 static void
 subscriptionPollingCallback(UA_Server *server, UA_PubSubConnection *connection) {
-    UA_ByteString buffer;
-    if (UA_ByteString_allocBuffer(&buffer, 512) != UA_STATUSCODE_GOOD) {
+    if (buffer.length == 0 && UA_ByteString_allocBuffer(&buffer, 512) != UA_STATUSCODE_GOOD) {
         UA_LOG_ERROR(UA_Log_Stdout, UA_LOGCATEGORY_SERVER,
                      "Message buffer allocation failed!");
         return;
@@ -43,13 +44,6 @@ subscriptionPollingCallback(UA_Server *server, UA_PubSubConnection *connection) 
     UA_StatusCode retval =
         connection->channel->receive(connection->channel, &buffer, NULL, 5);
     if(retval != UA_STATUSCODE_GOOD || buffer.length == 0) {
-        /* Workaround!! Reset buffer length. Receive can set the length to zero.
-         * Then the buffer is not deleted because no memory allocation is
-         * assumed.
-         * TODO: Return an error code in 'receive' instead of setting the buf
-         * length to zero. */
-        buffer.length = 512;
-        UA_ByteString_clear(&buffer);
         return;
     }
 
@@ -60,7 +54,6 @@ subscriptionPollingCallback(UA_Server *server, UA_PubSubConnection *connection) 
     memset(&networkMessage, 0, sizeof(UA_NetworkMessage));
     size_t currentPosition = 0;
     UA_NetworkMessage_decodeBinary(&buffer, &currentPosition, &networkMessage);
-    UA_ByteString_clear(&buffer);
 
     /* Is this the correct message type? */
     if(networkMessage.networkMessageType != UA_NETWORKMESSAGE_DATASET)
