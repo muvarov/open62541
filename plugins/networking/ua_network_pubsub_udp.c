@@ -363,12 +363,14 @@ UA_PubSubChannelUDPMC_send(UA_PubSubChannel *channel, UA_ExtensionObject *transp
  */
 static UA_StatusCode
 UA_PubSubChannelUDPMC_receive(UA_PubSubChannel *channel, UA_ByteString *message, UA_ExtensionObject *transportSettigns, UA_UInt32 timeout){
+#if 0
     if(!(channel->state == UA_PUBSUB_CHANNEL_PUB || channel->state == UA_PUBSUB_CHANNEL_PUB_SUB)) {
         UA_LOG_ERROR(UA_Log_Stdout, UA_LOGCATEGORY_SERVER, "PubSub Connection receive failed. Invalid state.");
         return UA_STATUSCODE_BADINTERNALERROR;
     }
+#endif
     UA_PubSubChannelDataUDPMC *channelConfigUDPMC = (UA_PubSubChannelDataUDPMC *) channel->handle;
-
+#if 0
     if(timeout > 0) {
         fd_set fdset;
         FD_ZERO(&fdset);
@@ -386,6 +388,7 @@ UA_PubSubChannelUDPMC_receive(UA_PubSubChannel *channel, UA_ByteString *message,
             return UA_STATUSCODE_BADINTERNALERROR;
         }
     }
+#endif
 
     if(channelConfigUDPMC->ai_family == PF_INET){
         ssize_t messageLength;
