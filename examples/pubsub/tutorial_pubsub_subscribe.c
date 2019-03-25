@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <signal.h>
 #include <stdlib.h>
+#include <time.h>
 
 UA_Boolean running = true;
 static void stopHandler(int sign) {
@@ -32,18 +33,56 @@ static void stopHandler(int sign) {
 
 static UA_ByteString buffer = { 0, 0 };
 
+static inline uint64_t ns_ts(void)
+{
+       return __builtin_ia32_rdtsc();
+}
+
+
+const int NANO_SECONDS_IN_SEC = 1000000000;
+/* returns a static buffer of struct timespec with the time difference of ts1 and ts2
+   ts1 is assumed to be greater than ts2 */
+static inline struct timespec *TimeSpecDiff(struct timespec *ts1, struct timespec *ts2)
+{
+  static struct timespec ts;
+  ts.tv_sec = ts1->tv_sec - ts2->tv_sec;
+  ts.tv_nsec = ts1->tv_nsec - ts2->tv_nsec;
+  if (ts.tv_nsec < 0) {
+    ts.tv_sec--;
+    ts.tv_nsec += NANO_SECONDS_IN_SEC;
+  }
+  return &ts;
+}
+
+static double g_TicksPerNanoSec;
+static uint64_t prev_ts;
+static unsigned int pnum;
+
+static void CalibrateTicks(void)
+{
+  struct timespec begints, endts;
+  uint64_t begin = 0, end = 0;
+  clock_gettime(CLOCK_MONOTONIC, &begints);
+  begin = ns_ts();
+  uint64_t i;
+  for (i = 0; i < 1000000; i++); /* must be CPU intensive */
+  end = ns_ts();
+  clock_gettime(CLOCK_MONOTONIC, &endts);
+  struct timespec *tmpts = TimeSpecDiff(&endts, &begints);
+  uint64_t nsecElapsed = (uint64_t)tmpts->tv_sec * 1000000000LL + (uint64_t)tmpts->tv_nsec;
+  g_TicksPerNanoSec = (double)(end - begin)/(double)nsecElapsed;
+  printf("Ticks per socond %f\n", g_TicksPerNanoSec);
+}
+
 static void
 subscriptionPollingCallback(UA_Server *server, UA_PubSubConnection *connection) {
-    if (buffer.length == 0 && UA_ByteString_allocBuffer(&buffer, 512) != UA_STATUSCODE_GOOD) {
-        UA_LOG_ERROR(UA_Log_Stdout, UA_LOGCATEGORY_SERVER,
-                     "Message buffer allocation failed!");
-        return;
-    }
+    uint64_t ts = ns_ts();
 
     /* Receive the message. Blocks for 5ms */
     UA_StatusCode retval =
         connection->channel->receive(connection->channel, &buffer, NULL, 5);
     if(retval != UA_STATUSCODE_GOOD || buffer.length == 0) {
+    	prev_ts = ts;
         return;
     }
 
@@ -84,10 +123,17 @@ subscriptionPollingCallback(UA_Server *server, UA_PubSubConnection *connection) 
             //            "Received date: %02i-%02i-%02i Received time: %02i:%02i:%02i",
             //            receivedTime.year, receivedTime.month, receivedTime.day,
             //            receivedTime.hour, receivedTime.min, receivedTime.sec);
+
+		if ((pnum++ % 10) == 0) {
+			uint64_t val_ns = (uint64_t)(ts - prev_ts) / (unsigned int)g_TicksPerNanoSec;
+			printf("cb poll lat %ld ns -> %ld ms -> %ld \n", val_ns, val_ns /1000, val_ns/1000/1000);
+			}
         }
     }
 
  cleanup:
+
+    prev_ts = ts;
     UA_NetworkMessage_clear(&networkMessage);
 }
 
@@ -127,6 +173,8 @@ run(UA_String *transportProfile, UA_NetworkAddressUrlDataType *networkAddressUrl
         UA_LOG_INFO(UA_Log_Stdout, UA_LOGCATEGORY_SERVER,
                     "The PubSub Connection was created successfully!");
 
+    UA_ByteString_allocBuffer(&buffer, 512);
+
     /* The following lines register the listening on the configured multicast
      * address and configure a repeated job, which is used to handle received
      * messages. */
@@ -137,12 +185,13 @@ run(UA_String *transportProfile, UA_NetworkAddressUrlDataType *networkAddressUrl
         if (rv == UA_STATUSCODE_GOOD) {
             UA_UInt64 subscriptionCallbackId;
             UA_Server_addRepeatedCallback(server, (UA_ServerCallback)subscriptionPollingCallback,
-                                          connection, 100, &subscriptionCallbackId);
+                                          connection, 0.000001, &subscriptionCallbackId);
         } else {
             UA_LOG_WARNING(UA_Log_Stdout, UA_LOGCATEGORY_SERVER, "register channel failed: %s!",
                            UA_StatusCode_name(rv));
         }
     }
+    CalibrateTicks();
 
     retval |= UA_Server_run(server, &running);
     UA_Server_delete(server);
