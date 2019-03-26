@@ -2,6 +2,7 @@
  * See http://creativecommons.org/publicdomain/zero/1.0/ for more information.
  */
 
+#define _GNU_SOURCE
 /**
  * IMPORTANT ANNOUNCEMENT
  * The PubSub subscriber API is currently not finished. This examples can be used to receive
@@ -25,6 +26,9 @@
 #include <stdlib.h>
 #include <time.h>
 
+#include <sched.h>
+#include <pthread.h>
+
 UA_Boolean running = true;
 #if 0
 static void stopHandler(int sign) {
@@ -34,47 +38,85 @@ static void stopHandler(int sign) {
 #endif
 
 static UA_ByteString buffer = { 0, 0 };
+FILE *outfile;
 
-static inline uint64_t ns_ts(void)
+/* Number of measuments */
+#define WP 10000
+
+/* 0 - kernel ts
+ * 1 - begin of callback
+ * 2 - end of callback
+ */
+
+static uint64_t all_ts[3][WP];
+static uint64_t w_all_ts[3][WP];
+
+static int pkt_cnt;
+
+static uint64_t ns_ts(void)
 {
-       return __builtin_ia32_rdtsc();
+	struct timespec ts;
+	uint64_t ns;
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	ns = (uint64_t)ts.tv_sec * 1000000000LL + (uint64_t)ts.tv_nsec;
+	return ns;
 }
 
+void tstamp0(uint64_t ts);
+void tstamp0_current(void);
 
-const int NANO_SECONDS_IN_SEC = 1000000000;
-/* returns a static buffer of struct timespec with the time difference of ts1 and ts2
-   ts1 is assumed to be greater than ts2 */
-static inline struct timespec *TimeSpecDiff(struct timespec *ts1, struct timespec *ts2)
+void tstamp0(uint64_t ts)
 {
-  static struct timespec ts;
-  ts.tv_sec = ts1->tv_sec - ts2->tv_sec;
-  ts.tv_nsec = ts1->tv_nsec - ts2->tv_nsec;
-  if (ts.tv_nsec < 0) {
-    ts.tv_sec--;
-    ts.tv_nsec += NANO_SECONDS_IN_SEC;
-  }
-  return &ts;
+	all_ts[0][pkt_cnt] = ts;
+	printf("update ts0 with %ld\n", ts);
 }
 
-static double g_TicksPerNanoSec;
-
-static void CalibrateTicks(void)
+void tstamp0_current(void)
 {
-  struct timespec begints, endts;
-  uint64_t begin = 0, end = 0;
-  clock_gettime(CLOCK_MONOTONIC, &begints);
-  begin = ns_ts();
-  uint64_t i;
-  for (i = 0; i < 1000000; i++); /* must be CPU intensive */
-  end = ns_ts();
-  clock_gettime(CLOCK_MONOTONIC, &endts);
-  struct timespec *tmpts = TimeSpecDiff(&endts, &begints);
-  uint64_t nsecElapsed = (uint64_t)tmpts->tv_sec * 1000000000LL + (uint64_t)tmpts->tv_nsec;
-  g_TicksPerNanoSec = (double)(end - begin)/(double)nsecElapsed;
-  printf("Ticks per socond %f\n", g_TicksPerNanoSec);
+	tstamp0(ns_ts());
 }
 
-#define NUMBER_OF_EXECS 10000000
+static void tstamp1(uint64_t ts)
+{
+	all_ts[1][pkt_cnt] = ts;
+}
+
+static void tstamp1_current(void)
+{
+	tstamp1(ns_ts());
+}
+
+static void tstamp2(uint64_t ts)
+{
+	all_ts[2][pkt_cnt] = ts;
+}
+
+static void tstamp2_current(void)
+{
+	tstamp2(ns_ts());
+}
+
+/* This is a bad hack, we just expect packets_shadow to be flushed into a file
+ * before updated
+ */
+static void *write_to_file(void *ptr)
+{
+	int j;
+	cpu_set_t cpuset;
+	const pthread_t pid = pthread_self();
+
+	CPU_ZERO(&cpuset);
+	CPU_SET(8, &cpuset);
+
+	rewind(outfile);
+	pthread_setaffinity_np(pid, sizeof(cpu_set_t), &cpuset);
+	for (j = 0; j < WP; j++)
+		fprintf(outfile, "%d:%ld\n", j, w_all_ts[2][j] - w_all_ts[1][j]);
+
+	fflush(outfile);
+	return NULL;
+}
 
 static inline void 
 subscriptionPollingCallback(UA_Server *server, UA_PubSubConnection *connection) {
@@ -152,9 +194,16 @@ subscriptionPollingCallback(UA_Server *server, UA_PubSubConnection *connection) 
 
 static inline void 
 __subscriptionPollingCallback(UA_Server *server, UA_PubSubConnection *connection) {
-    for (uint64_t i = 0; i < NUMBER_OF_EXECS; i++)
-	subscriptionPollingCallback(server, connection);
+    pthread_t thread1;
 
+    for (pkt_cnt = 0; pkt_cnt < WP; pkt_cnt++) {
+	tstamp1_current();
+	subscriptionPollingCallback(server, connection);
+	tstamp2_current();
+    }
+
+    memcpy(w_all_ts, all_ts, sizeof(w_all_ts));
+    pthread_create(&thread1, NULL, write_to_file, NULL);
 }
 
 static int
@@ -212,7 +261,10 @@ run(UA_String *transportProfile, UA_NetworkAddressUrlDataType *networkAddressUrl
     }
 #else
 
-
+    if ((outfile = fopen("opc_ua_speed.log", "w+")) == NULL) {
+	printf("unable to open opc_ua_speed.log\n");
+	exit(-1);
+    }
 
     if(connection != NULL) {
         connection->channel->regist(connection->channel, NULL, NULL);
@@ -220,14 +272,8 @@ run(UA_String *transportProfile, UA_NetworkAddressUrlDataType *networkAddressUrl
 	UA_ByteString_allocBuffer(&buffer, 512);
 
 	subscriptionPollingCallback(server, connection);
-        CalibrateTicks();
 	while (1) {
-		uint64_t end_ts;
-		uint64_t start_ts = ns_ts();
 		__subscriptionPollingCallback(server, connection);
-		end_ts = ns_ts();
-        	printf("Max ts diff is %ld ns, %ld us\n", (end_ts - start_ts)/NUMBER_OF_EXECS/(unsigned int)g_TicksPerNanoSec, (end_ts - start_ts)/ NUMBER_OF_EXECS / 1000 / (unsigned int)g_TicksPerNanoSec);
-		 
 	}
    } 
 #endif
