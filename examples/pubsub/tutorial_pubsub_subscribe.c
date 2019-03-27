@@ -41,7 +41,7 @@ static UA_ByteString buffer = { 0, 0 };
 FILE *outfile;
 
 /* Number of measuments */
-#define WP 10000
+#define WP 1024 
 
 /* 0 - kernel ts
  * 1 - begin of callback
@@ -69,7 +69,6 @@ void tstamp0_current(void);
 void tstamp0(uint64_t ts)
 {
 	all_ts[0][pkt_cnt] = ts;
-	printf("update ts0 with %ld\n", ts);
 }
 
 void tstamp0_current(void)
@@ -111,8 +110,11 @@ static void *write_to_file(void *ptr)
 
 	rewind(outfile);
 	pthread_setaffinity_np(pid, sizeof(cpu_set_t), &cpuset);
+	/* file format
+	 * Number:App Before callback - Kernel ts: App After callback - Kernel ts
+	 */
 	for (j = 0; j < WP; j++)
-		fprintf(outfile, "%d:%ld\n", j, w_all_ts[2][j] - w_all_ts[1][j]);
+		fprintf(outfile, "%d:%ld:%ld\n", j, w_all_ts[1][j] - w_all_ts[0][j], w_all_ts[2][j] - w_all_ts[0][j]);
 
 	fflush(outfile);
 	return NULL;
@@ -120,29 +122,17 @@ static void *write_to_file(void *ptr)
 
 static inline void 
 subscriptionPollingCallback(UA_Server *server, UA_PubSubConnection *connection) {
-    //UA_StatusCode retval;
-#if 0
-    uint64_t ts;
-    uint64_t prev_ts;
-    uint64_t max_ts = 0;
- 
-    prev_ts = ns_ts();
-    for (uint64_t i = 0; i < NUMBER_OF_EXECS; i++) {
-	ts = ns_ts();
-	if ((ts - prev_ts) > max_ts)
-		max_ts = ts - prev_ts;
-	prev_ts = ts;
-    	connection->channel->receive(connection->channel, &buffer, NULL, 5);
-   }
+    uint64_t kern_ts;
 
-   //return max_ts;
-#endif
-#if 1
-    	connection->channel->receive(connection->channel, &buffer, NULL, 5);
-   	//if(retval != UA_STATUSCODE_GOOD || buffer.length == 0) {
-        //return;
-	//}
-  
+    tstamp1_current();
+
+    connection->channel->receive(connection->channel, &buffer, NULL, 5);
+
+    /* packet size is 31, ts is at the end of user buff */
+    kern_ts = *(uint64_t *)((uintptr_t)buffer.data + 31);
+    tstamp0(kern_ts);
+ 
+    tstamp2(0);
 
     /* Decode the message */
     //UA_LOG_INFO(UA_Log_Stdout, UA_LOGCATEGORY_USERLAND,
@@ -183,12 +173,12 @@ subscriptionPollingCallback(UA_Server *server, UA_PubSubConnection *connection) 
                         receivedTime.year, receivedTime.month, receivedTime.day,
                         receivedTime.hour, receivedTime.min, receivedTime.sec);
 #endif
+	   tstamp2_current();
         }
     }
 
  cleanup:
     UA_NetworkMessage_clear(&networkMessage);
-#endif
 }
 
 
@@ -196,10 +186,11 @@ static inline void
 __subscriptionPollingCallback(UA_Server *server, UA_PubSubConnection *connection) {
     pthread_t thread1;
 
-    for (pkt_cnt = 0; pkt_cnt < WP; pkt_cnt++) {
-	tstamp1_current();
+    for (pkt_cnt = 0; pkt_cnt < WP; ) {
 	subscriptionPollingCallback(server, connection);
-	tstamp2_current();
+	if (all_ts[2][pkt_cnt] != 0) {
+		pkt_cnt++;
+	}
     }
 
     memcpy(w_all_ts, all_ts, sizeof(w_all_ts));
